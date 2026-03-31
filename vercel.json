@@ -2,10 +2,6 @@
   "functions": {
     "api/stems/[id].js": {
       "maxDuration": 30
-    },
-    "api/stems/upload.js": {
-      "maxDuration": 60,
-      "memory": 1024
     }
   },
   "rewrites": [
