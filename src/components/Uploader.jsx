@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useDropzone } from "react-dropzone";
-import { Upload, FileAudio, Zap } from "lucide-react";
+import { Upload, FileAudio, Zap, Brain, Save, CheckCircle2 } from "lucide-react";
 
 const ACCEPTED = {
   "audio/mpeg": [".mp3"],
@@ -9,7 +9,30 @@ const ACCEPTED = {
   "audio/flac": [".flac"],
   "audio/ogg": [".ogg"],
 };
-const MAX_SIZE = 100 * 1024 * 1024; // 100 MB
+const MAX_SIZE = 100 * 1024 * 1024;
+
+const STAGE_INFO = {
+  uploading: {
+    icon: Upload,
+    label: "Uploading to AI server...",
+    color: "text-accent",
+  },
+  processing: {
+    icon: Brain,
+    label: "AI is separating stems — this takes 30-90 seconds...",
+    color: "text-stem-vocals",
+  },
+  saving: {
+    icon: Save,
+    label: "Saving stems to database...",
+    color: "text-stem-bass",
+  },
+  done: {
+    icon: CheckCircle2,
+    label: "Done! Loading player...",
+    color: "text-stem-bass",
+  },
+};
 
 export default function Uploader({ onUpload, processing, progress }) {
   const onDrop = useCallback(
@@ -38,6 +61,10 @@ export default function Uploader({ onUpload, processing, progress }) {
     disabled: processing,
   });
 
+  const stage = progress.stage || "uploading";
+  const stageInfo = STAGE_INFO[stage] || STAGE_INFO.uploading;
+  const StageIcon = stageInfo.icon;
+
   return (
     <div className="glass rounded-2xl p-5">
       <h2 className="font-display text-sm font-semibold uppercase tracking-wider text-content-muted mb-4 flex items-center gap-2">
@@ -48,7 +75,7 @@ export default function Uploader({ onUpload, processing, progress }) {
       {/* Dropzone */}
       <div
         {...getRootProps()}
-        className={`relative border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-300 ${
+        className={`relative border-2 border-dashed rounded-xl p-7 text-center cursor-pointer transition-all duration-300 ${
           processing
             ? "border-accent/30 bg-accent-muted cursor-wait"
             : isDragActive
@@ -59,23 +86,40 @@ export default function Uploader({ onUpload, processing, progress }) {
         <input {...getInputProps()} />
 
         {processing ? (
-          <div className="space-y-3">
-            {/* Waveform animation */}
-            <div className="flex items-end justify-center h-8">
-              <span className="loading-bar" />
-              <span className="loading-bar" />
-              <span className="loading-bar" />
-              <span className="loading-bar" />
-              <span className="loading-bar" />
+          <div className="space-y-4">
+            {/* Stage icon + label */}
+            <div className="flex flex-col items-center gap-2">
+              {stage === "processing" ? (
+                /* Waveform animation for AI processing stage */
+                <div className="flex items-end justify-center h-10">
+                  <span className="loading-bar" />
+                  <span className="loading-bar" />
+                  <span className="loading-bar" />
+                  <span className="loading-bar" />
+                  <span className="loading-bar" />
+                </div>
+              ) : (
+                <StageIcon className={`w-8 h-8 ${stageInfo.color} ${stage === "done" ? "" : "animate-pulse"}`} />
+              )}
+
+              <p className={`text-sm font-semibold ${stageInfo.color}`}>
+                {stageInfo.label}
+              </p>
             </div>
 
-            <p className="text-sm font-medium text-accent">{progress.msg || "Processing..."}</p>
-
             {/* Progress bar */}
-            <div className="w-full bg-surface-sunken rounded-full h-2 overflow-hidden">
+            <div className="w-full bg-surface-sunken rounded-full h-2.5 overflow-hidden">
               <div
-                className="h-full bg-accent rounded-full transition-all duration-500 ease-out"
-                style={{ width: `${progress.pct}%` }}
+                className="h-full rounded-full transition-all duration-700 ease-out"
+                style={{
+                  width: `${progress.pct}%`,
+                  background:
+                    stage === "uploading"
+                      ? "var(--accent)"
+                      : stage === "processing"
+                      ? "var(--stem-vocals)"
+                      : "var(--stem-bass)",
+                }}
               />
             </div>
             <p className="text-xs text-content-muted font-mono">{progress.pct}%</p>
@@ -83,7 +127,7 @@ export default function Uploader({ onUpload, processing, progress }) {
         ) : (
           <div className="space-y-2">
             <FileAudio
-              className={`w-10 h-10 mx-auto transition-colors ${
+              className={`w-12 h-12 mx-auto transition-colors ${
                 isDragActive ? "text-accent" : "text-content-muted"
               }`}
             />
@@ -106,10 +150,9 @@ export default function Uploader({ onUpload, processing, progress }) {
         )}
       </div>
 
-      {/* Separate button */}
       {!processing && (
         <p className="mt-3 text-xs text-content-muted flex items-center gap-1.5 justify-center">
-          <Zap className="w-3 h-3 text-accent" />
+          <Zap className="w-3.5 h-3.5 text-accent" />
           Uses Meta Demucs htdemucs_ft on GPU
         </p>
       )}
