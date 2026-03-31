@@ -27,11 +27,11 @@
   --border-default: rgba(255, 255, 255, 0.08);
   --border-subtle: rgba(255, 255, 255, 0.04);
 
-  /* Stem Colors */
-  --stem-vocals: #f472b6;
-  --stem-drums: #fb923c;
-  --stem-bass: #34d399;
-  --stem-other: #60a5fa;
+  /* Stem Colors — each instrument gets a distinct hue */
+  --stem-vocals: #a78bfa;   /* Violet */
+  --stem-drums: #fb923c;    /* Orange */
+  --stem-bass: #34d399;     /* Green */
+  --stem-other: #60a5fa;    /* Blue */
 
   /* Misc */
   --radius-sm: 6px;
@@ -63,7 +63,6 @@ body {
   color: var(--content-primary);
   min-height: 100vh;
   overflow-x: hidden;
-  /* Slightly larger base for readability */
   font-size: 1rem;
   line-height: 1.6;
 }
