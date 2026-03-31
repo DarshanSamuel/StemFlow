@@ -2,10 +2,9 @@
    GET /api/stems/[id]
    
    Streams an audio stem from MongoDB GridFS to the browser.
-   The [id] is a GridFS ObjectId string stored in the project.
    
-   Response: audio/mpeg binary stream with caching headers.
-   Supports Range requests for seeking in the audio player.
+   Uses buffered reads instead of pipe() for Vercel compatibility.
+   Supports Range requests for audio seeking.
    ================================================================ */
 
 import { ObjectId } from "mongodb";
@@ -14,9 +13,23 @@ import { setCorsHeaders } from "../_lib/auth.js";
 
 export const config = {
   api: {
-    responseLimit: false, // Allow large audio responses
+    responseLimit: false,
   },
 };
+
+/**
+ * Read a GridFS file (or a byte range of it) into a Buffer.
+ */
+function downloadToBuffer(bucket, fileId, options = {}) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    const stream = bucket.openDownloadStream(fileId, options);
+
+    stream.on("data", (chunk) => chunks.push(chunk));
+    stream.on("end", () => resolve(Buffer.concat(chunks)));
+    stream.on("error", (err) => reject(err));
+  });
+}
 
 export default async function handler(req, res) {
   setCorsHeaders(res);
@@ -29,7 +42,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // Extract file ID from URL path
+  // Extract file ID from URL
   const urlParts = req.url.split("/");
   const fileIdStr = urlParts[urlParts.length - 1]?.split("?")[0];
 
@@ -45,10 +58,10 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Malformed file ID." });
     }
 
-    const bucket = await getGridFSBucket();
     const db = await getNativeDB();
+    const bucket = await getGridFSBucket();
 
-    // Look up the file metadata first to get content-length
+    // Look up file metadata
     const fileMeta = await db
       .collection("stems.files")
       .findOne({ _id: fileId });
@@ -59,9 +72,8 @@ export default async function handler(req, res) {
 
     const fileSize = fileMeta.length;
     const contentType = fileMeta.metadata?.contentType || "audio/mpeg";
-    const fileName = fileMeta.filename || "stem.mp3";
 
-    // ---- Handle Range requests (for audio seeking) ----
+    // ── Handle Range requests (for seeking) ──
     const rangeHeader = req.headers.range;
 
     if (rangeHeader) {
@@ -70,45 +82,38 @@ export default async function handler(req, res) {
       const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
       const chunkSize = end - start + 1;
 
+      // Read the requested byte range into a buffer
+      const buffer = await downloadToBuffer(bucket, fileId, {
+        start,
+        end: end + 1, // GridFS end is exclusive
+      });
+
       res.writeHead(206, {
         "Content-Range": `bytes ${start}-${end}/${fileSize}`,
         "Accept-Ranges": "bytes",
-        "Content-Length": chunkSize,
+        "Content-Length": buffer.length,
         "Content-Type": contentType,
         "Cache-Control": "public, max-age=31536000, immutable",
       });
 
-      const stream = bucket.openDownloadStream(fileId, { start, end: end + 1 });
-      stream.pipe(res);
-
-      stream.on("error", (err) => {
-        console.error("GridFS stream error:", err);
-        if (!res.headersSent) {
-          res.status(500).json({ error: "Stream error" });
-        }
-      });
-    } else {
-      // ---- Full file response ----
-      res.writeHead(200, {
-        "Content-Type": contentType,
-        "Content-Length": fileSize,
-        "Content-Disposition": `inline; filename="${fileName}"`,
-        "Accept-Ranges": "bytes",
-        "Cache-Control": "public, max-age=31536000, immutable",
-      });
-
-      const stream = bucket.openDownloadStream(fileId);
-      stream.pipe(res);
-
-      stream.on("error", (err) => {
-        console.error("GridFS stream error:", err);
-        if (!res.headersSent) {
-          res.status(500).json({ error: "Stream error" });
-        }
-      });
+      return res.end(buffer);
     }
+
+    // ── Full file response ──
+    const buffer = await downloadToBuffer(bucket, fileId);
+
+    res.writeHead(200, {
+      "Content-Type": contentType,
+      "Content-Length": buffer.length,
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "public, max-age=31536000, immutable",
+    });
+
+    return res.end(buffer);
   } catch (error) {
     console.error("Stem fetch error:", error);
-    return res.status(500).json({ error: "Failed to fetch stem audio." });
+    if (!res.headersSent) {
+      return res.status(500).json({ error: "Failed to fetch stem audio." });
+    }
   }
 }
