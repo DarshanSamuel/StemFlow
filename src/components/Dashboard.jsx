@@ -1,26 +1,35 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Disc3, LogOut, Music } from "lucide-react";
+import { Disc3, LogOut, Music, Scissors, Sliders, Sparkles } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuth } from "../hooks/useAuth";
-import { getProjects, createProject, deleteProject, separateTrack } from "../lib/api";
+import { getProjects, createProject, deleteProject, uploadFileToColab } from "../lib/api";
 import Uploader from "./Uploader";
 import ProjectList from "./ProjectList";
-import StemPlayer from "./StemPlayer";
+import StemExtraction from "./tabs/StemExtraction";
+import AudioClipping from "./tabs/AudioClipping";
+import AudioMixing from "./tabs/AudioMixing";
+
+const TABS = [
+  { id: "extraction", label: "Stem Extraction", icon: Sparkles },
+  { id: "clipping", label: "Audio Clipping", icon: Scissors },
+  { id: "mixing", label: "Audio Mixing", icon: Sliders },
+];
 
 export default function Dashboard() {
   const { user, signOut } = useAuth();
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [loadingProjects, setLoadingProjects] = useState(true);
-  const [processing, setProcessing] = useState(false);
-  const [progress, setProgress] = useState({ pct: 0, stage: "uploading" });
+  const [activeTab, setActiveTab] = useState("extraction");
+
+  // Upload + processing state
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploading, setUploading] = useState(false);
+  const [separating, setSeparating] = useState(false);
 
   useEffect(() => {
-    if (user?.isGuest) {
-      setLoadingProjects(false);
-      return;
-    }
+    if (user?.isGuest) { setLoadingProjects(false); return; }
     fetchProjects();
   }, [user]);
 
@@ -28,99 +37,75 @@ export default function Dashboard() {
     try {
       const data = await getProjects();
       setProjects(data.projects || []);
-    } catch (err) {
-      toast.error("Failed to load projects");
-    } finally {
-      setLoadingProjects(false);
-    }
+    } catch { toast.error("Failed to load projects"); }
+    finally { setLoadingProjects(false); }
   };
 
-  const handleUpload = useCallback(
-    async (file) => {
-      setProcessing(true);
-      setProgress({ pct: 0, stage: "uploading" });
+  const handleUpload = useCallback(async (file) => {
+    const masterBlobURL = URL.createObjectURL(file);
+    setUploading(true);
+    setUploadProgress(0);
+    setSeparating(false);
+    setActiveTab("extraction");
 
-      // Create a local object URL for master track playback
-      const masterObjectURL = URL.createObjectURL(file);
+    try {
+      // Phase 1: Upload (progress is real upload %)
+      setSeparating(false);
+      const result = await new Promise((resolve, reject) => {
+        uploadFileToColab(file, (pct) => {
+          setUploadProgress(pct);
+          if (pct >= 100 && !separating) {
+            setUploading(false);
+            setSeparating(true);
+          }
+        }).then(resolve).catch(reject);
+      });
 
-      try {
-        const result = await separateTrack(file, (pct, stage) => {
-          setProgress({ pct, stage });
-        });
+      // Phase 2: Save project
+      const projectData = {
+        name: file.name.replace(/\.[^/.]+$/, ""),
+        stems: { vocals: result.vocals, drums: result.drums, bass: result.bass, other: result.other },
+        masterUrl: masterBlobURL,
+      };
 
-        setProgress({ pct: 92, stage: "saving" });
-
-        const projectData = {
-          name: file.name.replace(/\.[^/.]+$/, ""),
-          stems: {
-            vocals: result.vocals,
-            drums: result.drums,
-            bass: result.bass,
-            other: result.other,
-          },
-          // Master track: use GridFS ID from Colab if available, else local blob
-          masterUrl: result.master || masterObjectURL,
-        };
-
-        if (!user?.isGuest) {
-          const saved = await createProject({
-            name: projectData.name,
-            stems: projectData.stems,
-          });
-          // Attach master URL to the saved project for the player
-          const projectWithMaster = {
-            ...saved.project,
-            masterUrl: projectData.masterUrl,
-          };
-          setProjects((prev) => [projectWithMaster, ...prev]);
-          setSelectedProject(projectWithMaster);
-        } else {
-          const guestProject = {
-            _id: `guest-${Date.now()}`,
-            ...projectData,
-            createdAt: new Date().toISOString(),
-          };
-          setProjects((prev) => [guestProject, ...prev]);
-          setSelectedProject(guestProject);
-        }
-
-        setProgress({ pct: 100, stage: "done" });
-        toast.success("Stems separated successfully!");
-      } catch (err) {
-        toast.error(err.message || "Separation failed");
-        console.error("Separation error:", err);
-        URL.revokeObjectURL(masterObjectURL);
-      } finally {
-        // Small delay so user sees "Done!" before resetting
-        setTimeout(() => {
-          setProcessing(false);
-          setProgress({ pct: 0, stage: "uploading" });
-        }, 800);
+      if (!user?.isGuest) {
+        const saved = await createProject({ name: projectData.name, stems: projectData.stems });
+        const proj = { ...saved.project, masterUrl: masterBlobURL };
+        setProjects(prev => [proj, ...prev]);
+        setSelectedProject(proj);
+      } else {
+        const proj = { _id: `guest-${Date.now()}`, ...projectData, createdAt: new Date().toISOString() };
+        setProjects(prev => [proj, ...prev]);
+        setSelectedProject(proj);
       }
-    },
-    [user]
-  );
+      toast.success("Stems separated successfully!");
+    } catch (err) {
+      toast.error(err.message || "Separation failed");
+      URL.revokeObjectURL(masterBlobURL);
+    } finally {
+      setUploading(false);
+      setSeparating(false);
+      setUploadProgress(0);
+    }
+  }, [user]);
 
   const handleDeleteProject = async (projectId) => {
     if (user?.isGuest) {
-      setProjects((prev) => prev.filter((p) => p._id !== projectId));
+      setProjects(prev => prev.filter(p => p._id !== projectId));
       if (selectedProject?._id === projectId) setSelectedProject(null);
       return;
     }
-
     try {
       await deleteProject(projectId);
-      setProjects((prev) => prev.filter((p) => p._id !== projectId));
+      setProjects(prev => prev.filter(p => p._id !== projectId));
       if (selectedProject?._id === projectId) setSelectedProject(null);
       toast.success("Project deleted");
-    } catch (err) {
-      toast.error("Failed to delete project");
-    }
+    } catch { toast.error("Failed to delete project"); }
   };
 
   return (
     <div className="min-h-screen bg-gradient-animated noise-overlay">
-      {/* Header */}
+      {/* ── Header ── */}
       <header className="sticky top-0 z-50 glass border-b border-border-default">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -129,36 +114,25 @@ export default function Dashboard() {
               Stem<span className="text-accent">Flow</span>
             </span>
           </div>
-
           <div className="flex items-center gap-3">
-            <span className="text-xs text-content-muted hidden sm:block font-mono">
-              {user?.email}
-            </span>
-            <button
-              onClick={signOut}
-              className="flex items-center gap-1.5 text-sm text-content-secondary hover:text-content-primary bg-surface-raised hover:bg-surface-overlay border border-border-default rounded-lg px-3 py-1.5 transition-all"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Sign Out</span>
+            <span className="text-xs text-content-muted hidden sm:block font-mono">{user?.email}</span>
+            <button onClick={signOut} className="flex items-center gap-1.5 text-sm text-content-secondary hover:text-content-primary bg-surface-raised hover:bg-surface-overlay border border-border-default rounded-lg px-3 py-1.5 transition-all">
+              <LogOut className="w-3.5 h-3.5" /><span className="hidden sm:inline">Sign Out</span>
             </button>
           </div>
         </div>
       </header>
 
-      {/* Main content */}
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 relative z-10">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* LEFT COLUMN */}
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5, delay: 0.1 }}
-            className="lg:col-span-4 xl:col-span-3 space-y-5"
-          >
+
+          {/* ── LEFT SIDEBAR (common) ── */}
+          <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4 }}
+            className="lg:col-span-4 xl:col-span-3 space-y-5">
             <Uploader
               onUpload={handleUpload}
-              processing={processing}
-              progress={progress}
+              uploading={uploading}
+              uploadProgress={uploadProgress}
             />
             <ProjectList
               projects={projects}
@@ -169,29 +143,46 @@ export default function Dashboard() {
             />
           </motion.div>
 
-          {/* RIGHT COLUMN */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-            className="lg:col-span-8 xl:col-span-9"
-          >
-            {selectedProject ? (
-              <StemPlayer project={selectedProject} />
-            ) : (
-              <div className="glass rounded-2xl p-12 flex flex-col items-center justify-center min-h-[500px] text-center">
-                <div className="relative mb-6">
-                  <Music className="w-16 h-16 text-content-muted" />
-                  <div className="absolute inset-0 bg-accent/5 blur-2xl rounded-full" />
-                </div>
-                <h3 className="font-display text-xl font-semibold text-content-secondary mb-2">
-                  No Track Selected
-                </h3>
-                <p className="text-content-muted text-sm max-w-sm leading-relaxed">
-                  Upload a music file and separate it into stems, or select a
-                  previous project from the sidebar to start mixing.
-                </p>
+          {/* ── RIGHT MAIN AREA ── */}
+          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4, delay: 0.1 }}
+            className="lg:col-span-8 xl:col-span-9 space-y-4">
+
+            {/* Tab bar */}
+            <div className="glass rounded-xl p-1.5 flex gap-1">
+              {TABS.map(tab => {
+                const Icon = tab.icon;
+                const active = activeTab === tab.id;
+                return (
+                  <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
+                      active ? "bg-surface-raised text-accent shadow-sm" : "text-content-muted hover:text-content-secondary"
+                    }`}>
+                    <Icon className="w-4 h-4" />
+                    <span className="hidden sm:inline">{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Tab content */}
+            {!selectedProject ? (
+              <div className="glass rounded-2xl p-12 flex flex-col items-center justify-center min-h-[450px] text-center">
+                <Music className="w-16 h-16 text-content-muted mb-4" />
+                <h3 className="font-display text-xl font-semibold text-content-secondary mb-2">No Track Selected</h3>
+                <p className="text-content-muted text-sm max-w-sm">Upload a music file or select a project from the sidebar.</p>
               </div>
+            ) : (
+              <>
+                {activeTab === "extraction" && (
+                  <StemExtraction project={selectedProject} separating={separating} />
+                )}
+                {activeTab === "clipping" && (
+                  <AudioClipping project={selectedProject} />
+                )}
+                {activeTab === "mixing" && (
+                  <AudioMixing project={selectedProject} />
+                )}
+              </>
             )}
           </motion.div>
         </div>
