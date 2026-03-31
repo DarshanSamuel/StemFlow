@@ -44,14 +44,10 @@ async function apiFetch(path, options = {}) {
 
 /* ================================================================
    Stem URL Helper
-   
-   Converts a GridFS ObjectId string into a streamable URL.
-   e.g. "66a1b2c3..." → "/api/stems/66a1b2c3..."
    ================================================================ */
 
 export function stemURL(gridfsId) {
   if (!gridfsId) return "";
-  // If it already looks like a URL (for guest mode mock data), return as-is
   if (gridfsId.startsWith("http") || gridfsId.startsWith("/")) return gridfsId;
   return `${API_BASE}/stems/${gridfsId}`;
 }
@@ -113,11 +109,12 @@ export async function deleteProject(id) {
 /* ================================================================
    Colab / Demucs Processing
    
-   The Colab backend now:
-     1. Separates audio with Demucs on GPU
-     2. Converts WAV stems → MP3 (128 kbps) via ffmpeg
-     3. Uploads MP3s directly to MongoDB GridFS via PyMongo
-     4. Returns { vocals, drums, bass, other } as GridFS ObjectId strings
+   Progress stages:
+     0-40%   → Uploading file to Colab server
+     40-45%  → Upload complete, AI is starting
+     45-85%  → AI separation in progress (we poll, but can't track exact %)
+     85-95%  → Saving stems to MongoDB
+     95-100% → Done
    ================================================================ */
 
 export async function separateTrack(file, onProgress) {
@@ -132,19 +129,42 @@ export async function separateTrack(file, onProgress) {
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    let uploadDone = false;
 
+    // Upload progress: 0% → 40%
     xhr.upload.addEventListener("progress", (e) => {
       if (e.lengthComputable && onProgress) {
-        const pct = Math.round((e.loaded / e.total) * 50);
-        onProgress(pct, "Uploading file...");
+        const pct = Math.round((e.loaded / e.total) * 40);
+        onProgress(pct, "uploading");
       }
     });
 
+    xhr.upload.addEventListener("load", () => {
+      uploadDone = true;
+      if (onProgress) {
+        onProgress(42, "processing");
+      }
+    });
+
+    // Simulate progress while waiting for AI to finish
+    let fakeProgress = 42;
+    const progressInterval = setInterval(() => {
+      if (uploadDone && fakeProgress < 82) {
+        fakeProgress += 0.5;
+        if (onProgress) {
+          onProgress(Math.round(fakeProgress), "processing");
+        }
+      }
+    }, 1000);
+
     xhr.addEventListener("load", () => {
+      clearInterval(progressInterval);
+
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
+          if (onProgress) onProgress(90, "saving");
           const data = JSON.parse(xhr.responseText);
-          // data contains GridFS IDs: { vocals: "id", drums: "id", ... }
+          if (onProgress) onProgress(100, "done");
           resolve(data);
         } catch {
           reject(new Error("Invalid JSON response from Colab server"));
@@ -161,20 +181,20 @@ export async function separateTrack(file, onProgress) {
       }
     });
 
-    xhr.addEventListener("error", () =>
-      reject(new Error("Network error — is the Colab server running?"))
-    );
+    xhr.addEventListener("error", () => {
+      clearInterval(progressInterval);
+      reject(new Error("Network error — is the Colab server running?"));
+    });
 
-    xhr.addEventListener("timeout", () =>
+    xhr.addEventListener("timeout", () => {
+      clearInterval(progressInterval);
       reject(
-        new Error(
-          "Request timed out — Demucs processing may take a while. Try again."
-        )
-      )
-    );
+        new Error("Request timed out — Demucs processing may take a while. Try again.")
+      );
+    });
 
     xhr.open("POST", `${COLAB_URL}/separate`);
-    xhr.timeout = 600000; // 10 minute timeout
+    xhr.timeout = 600000;
     xhr.send(formData);
   });
 }
