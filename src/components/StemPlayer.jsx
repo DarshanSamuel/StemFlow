@@ -8,16 +8,22 @@ import {
   Drum,
   Guitar,
   Layers,
+  Music,
   Volume2,
   VolumeX,
   SkipBack,
+  SkipForward,
   Scissors,
   PackageOpen,
   Clock,
+  Loader2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { stemURL } from "../lib/api";
 
+/* ================================================================
+   Stem config — each instrument has a color + icon
+   ================================================================ */
 const STEM_CONFIG = [
   {
     key: "vocals",
@@ -49,13 +55,22 @@ const STEM_CONFIG = [
   },
 ];
 
-function StemChannel({ config, url, masterTime, isPlaying, onTimeUpdate }) {
+/* ================================================================
+   Individual Stem/Track Channel
+   - Own play/pause, rewind 5s, forward 5s
+   - Volume slider + mute
+   - Clip preview (start/end)
+   - Download button
+   ================================================================ */
+function TrackChannel({ config, url, isMaster }) {
   const audioRef = useRef(null);
+  const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(80);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   // Clip state
   const [clipStart, setClipStart] = useState("");
@@ -64,43 +79,38 @@ function StemChannel({ config, url, masterTime, isPlaying, onTimeUpdate }) {
 
   const Icon = config.icon;
 
-  // Sync with master play/pause
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !url) return;
-
-    if (isPlaying && !loading) {
-      audio.play().catch(() => {});
-    } else {
-      audio.pause();
-    }
-  }, [isPlaying, url, loading]);
-
-  // Sync master time (from first channel)
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || masterTime === null || masterTime === undefined) return;
-    if (Math.abs(audio.currentTime - masterTime) > 0.3) {
-      audio.currentTime = masterTime;
-    }
-  }, [masterTime]);
-
-  // Volume
+  // Volume sync
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = muted ? 0 : volume / 100;
     }
   }, [volume, muted]);
 
+  const togglePlay = () => {
+    const audio = audioRef.current;
+    if (!audio || loading) return;
+    if (playing) {
+      audio.pause();
+      setPlaying(false);
+    } else {
+      audio.play().then(() => setPlaying(true)).catch(() => {});
+    }
+  };
+
+  const seekBy = (seconds) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.currentTime = Math.max(0, Math.min(duration, audio.currentTime + seconds));
+  };
+
   const handleTimeUpdate = () => {
     const t = audioRef.current?.currentTime || 0;
     setCurrentTime(t);
-    if (onTimeUpdate) onTimeUpdate(t);
 
-    // Clip boundary enforcement
     if (clipping && clipEnd && t >= parseFloat(clipEnd)) {
       audioRef.current.pause();
       audioRef.current.currentTime = parseFloat(clipStart) || 0;
+      setPlaying(false);
       setClipping(false);
     }
   };
@@ -109,15 +119,19 @@ function StemChannel({ config, url, masterTime, isPlaying, onTimeUpdate }) {
     const start = parseFloat(clipStart) || 0;
     const end = parseFloat(clipEnd) || duration;
     if (start >= end) {
-      toast.error("Start time must be before end time");
+      toast.error("Start must be before end");
       return;
     }
     audioRef.current.currentTime = start;
     audioRef.current.play();
+    setPlaying(true);
     setClipping(true);
   };
 
+  const handleEnded = () => setPlaying(false);
+
   const formatTime = (s) => {
+    if (!s || isNaN(s)) return "0:00";
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60);
     return `${m}:${sec.toString().padStart(2, "0")}`;
@@ -135,9 +149,11 @@ function StemChannel({ config, url, masterTime, isPlaying, onTimeUpdate }) {
     document.body.removeChild(a);
   };
 
+  const progressPct = duration ? (currentTime / duration) * 100 : 0;
+
   return (
     <div
-      className={`${config.cardClass} bg-surface-raised rounded-xl p-4 space-y-3`}
+      className={`${isMaster ? "border-l-[3px] border-accent" : config.cardClass} bg-surface-raised rounded-xl p-5 space-y-4`}
     >
       <audio
         ref={audioRef}
@@ -146,72 +162,109 @@ function StemChannel({ config, url, masterTime, isPlaying, onTimeUpdate }) {
         onLoadedMetadata={() => {
           setDuration(audioRef.current?.duration || 0);
           setLoading(false);
+          setError(false);
         }}
         onTimeUpdate={handleTimeUpdate}
+        onEnded={handleEnded}
         onWaiting={() => setLoading(true)}
         onCanPlay={() => setLoading(false)}
+        onError={() => {
+          setLoading(false);
+          setError(true);
+        }}
       />
 
-      {/* Header row */}
+      {/* ── Header ── */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <Icon
-            className="w-4 h-4"
-            style={{ color: `var(${config.colorVar})` }}
+            className="w-5 h-5"
+            style={{ color: isMaster ? "var(--accent)" : `var(${config.colorVar})` }}
           />
-          <span className="font-display text-sm font-semibold">
+          <span className="font-display text-base font-semibold">
             {config.label}
           </span>
-          {loading ? (
-            <span className="text-xs text-content-muted animate-pulse">
-              Loading...
-            </span>
-          ) : (
-            <span className="text-xs font-mono text-content-muted">
-              {formatTime(currentTime)} / {formatTime(duration)}
-            </span>
+          {loading && !error && (
+            <Loader2 className="w-4 h-4 text-content-muted animate-spin" />
+          )}
+          {error && (
+            <span className="text-xs text-red-400">Failed to load</span>
           )}
         </div>
 
-        <button
-          onClick={handleDownload}
-          className="p-1.5 rounded-md hover:bg-surface-overlay text-content-muted hover:text-content-primary transition-all"
-          title={`Download ${config.label}`}
+        {!isMaster && (
+          <button
+            onClick={handleDownload}
+            className="p-2 rounded-lg hover:bg-surface-overlay text-content-muted hover:text-content-primary transition-all"
+            title={`Download ${config.label}`}
+          >
+            <Download className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
+      {/* ── Timeline / progress bar ── */}
+      <div className="space-y-1.5">
+        <div
+          className="w-full bg-surface-sunken rounded-full h-2 cursor-pointer group"
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const pct = (e.clientX - rect.left) / rect.width;
+            if (audioRef.current) audioRef.current.currentTime = pct * duration;
+          }}
         >
-          <Download className="w-3.5 h-3.5" />
+          <div
+            className="h-full rounded-full transition-all duration-150"
+            style={{
+              width: `${progressPct}%`,
+              background: isMaster ? "var(--accent)" : `var(${config.colorVar})`,
+            }}
+          />
+        </div>
+        <div className="flex justify-between text-xs font-mono text-content-muted">
+          <span>{formatTime(currentTime)}</span>
+          <span>{formatTime(duration)}</span>
+        </div>
+      </div>
+
+      {/* ── Transport controls: Rewind / Play-Pause / Forward ── */}
+      <div className="flex items-center justify-center gap-3">
+        <button
+          onClick={() => seekBy(-5)}
+          className="p-2.5 rounded-lg bg-surface-sunken hover:bg-surface-overlay text-content-secondary hover:text-content-primary transition-all"
+          title="Rewind 5s"
+        >
+          <SkipBack className="w-5 h-5" />
+        </button>
+
+        <button
+          onClick={togglePlay}
+          disabled={loading || error}
+          className="p-3 rounded-xl text-content-inverse transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{
+            background: isMaster ? "var(--accent)" : `var(${config.colorVar})`,
+          }}
+          title={playing ? "Pause" : "Play"}
+        >
+          {playing ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+        </button>
+
+        <button
+          onClick={() => seekBy(5)}
+          className="p-2.5 rounded-lg bg-surface-sunken hover:bg-surface-overlay text-content-secondary hover:text-content-primary transition-all"
+          title="Forward 5s"
+        >
+          <SkipForward className="w-5 h-5" />
         </button>
       </div>
 
-      {/* Progress bar */}
-      <div
-        className="w-full bg-surface-sunken rounded-full h-1.5 cursor-pointer group"
-        onClick={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          const pct = (e.clientX - rect.left) / rect.width;
-          const t = pct * duration;
-          if (audioRef.current) audioRef.current.currentTime = t;
-        }}
-      >
-        <div
-          className="h-full rounded-full transition-all duration-100"
-          style={{
-            width: `${duration ? (currentTime / duration) * 100 : 0}%`,
-            background: `var(${config.colorVar})`,
-          }}
-        />
-      </div>
-
-      {/* Volume control */}
-      <div className="flex items-center gap-2">
+      {/* ── Volume ── */}
+      <div className="flex items-center gap-3">
         <button
           onClick={() => setMuted(!muted)}
-          className="p-1 rounded text-content-muted hover:text-content-primary transition-colors"
+          className="p-1.5 rounded text-content-muted hover:text-content-primary transition-colors"
         >
-          {muted ? (
-            <VolumeX className="w-3.5 h-3.5" />
-          ) : (
-            <Volume2 className="w-3.5 h-3.5" />
-          )}
+          {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
         </button>
         <input
           type="range"
@@ -222,9 +275,9 @@ function StemChannel({ config, url, masterTime, isPlaying, onTimeUpdate }) {
             setVolume(Number(e.target.value));
             if (muted) setMuted(false);
           }}
-          className="flex-1 h-1 bg-surface-sunken rounded-full appearance-none cursor-pointer
-                     [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3
-                     [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full
+          className="flex-1 h-1.5 bg-surface-sunken rounded-full appearance-none cursor-pointer
+                     [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4
+                     [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full
                      [&::-webkit-slider-thumb]:bg-content-primary [&::-webkit-slider-thumb]:cursor-pointer"
         />
         <span className="text-xs font-mono text-content-muted w-8 text-right">
@@ -232,120 +285,164 @@ function StemChannel({ config, url, masterTime, isPlaying, onTimeUpdate }) {
         </span>
       </div>
 
-      {/* Clip controls */}
-      <div className="flex items-center gap-2 pt-1 border-t border-border-subtle">
-        <Clock className="w-3 h-3 text-content-muted flex-shrink-0" />
-        <input
-          type="number"
-          placeholder="Start (s)"
-          value={clipStart}
-          onChange={(e) => setClipStart(e.target.value)}
-          min="0"
-          step="0.1"
-          className="w-20 bg-surface-sunken border border-border-default rounded px-2 py-1 text-xs text-content-primary placeholder:text-content-muted focus:outline-none focus:border-accent/40"
-        />
-        <span className="text-xs text-content-muted">→</span>
-        <input
-          type="number"
-          placeholder="End (s)"
-          value={clipEnd}
-          onChange={(e) => setClipEnd(e.target.value)}
-          min="0"
-          step="0.1"
-          className="w-20 bg-surface-sunken border border-border-default rounded px-2 py-1 text-xs text-content-primary placeholder:text-content-muted focus:outline-none focus:border-accent/40"
-        />
-        <button
-          onClick={handlePreviewClip}
-          className="flex items-center gap-1 bg-surface-overlay hover:bg-surface-sunken border border-border-default rounded px-2 py-1 text-xs text-content-secondary hover:text-content-primary transition-all"
-        >
-          <Scissors className="w-3 h-3" />
-          Preview
-        </button>
-      </div>
+      {/* ── Clip controls (not on master track) ── */}
+      {!isMaster && (
+        <div className="flex items-center gap-2.5 pt-2 border-t border-border-subtle">
+          <Clock className="w-4 h-4 text-content-muted flex-shrink-0" />
+          <input
+            type="number"
+            placeholder="Start (s)"
+            value={clipStart}
+            onChange={(e) => setClipStart(e.target.value)}
+            min="0"
+            step="0.1"
+            className="w-24 bg-surface-sunken border border-border-default rounded-lg px-3 py-1.5 text-sm text-content-primary placeholder:text-content-muted focus:outline-none focus:border-accent/40"
+          />
+          <span className="text-sm text-content-muted">→</span>
+          <input
+            type="number"
+            placeholder="End (s)"
+            value={clipEnd}
+            onChange={(e) => setClipEnd(e.target.value)}
+            min="0"
+            step="0.1"
+            className="w-24 bg-surface-sunken border border-border-default rounded-lg px-3 py-1.5 text-sm text-content-primary placeholder:text-content-muted focus:outline-none focus:border-accent/40"
+          />
+          <button
+            onClick={handlePreviewClip}
+            className="flex items-center gap-1.5 bg-surface-overlay hover:bg-surface-sunken border border-border-default rounded-lg px-3 py-1.5 text-sm text-content-secondary hover:text-content-primary transition-all"
+          >
+            <Scissors className="w-4 h-4" />
+            Preview
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
+/* ================================================================
+   Main StemPlayer
+   - Master track at top
+   - 4 separated stems in grid
+   - "Download All as ZIP" for stems only
+   ================================================================ */
 export default function StemPlayer({ project }) {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [masterTime, setMasterTime] = useState(0);
-  const isMasterRef = useRef(true);
+  const [zipping, setZipping] = useState(false);
 
-  const handleMasterTimeUpdate = useCallback((t) => {
-    if (isMasterRef.current) {
-      setMasterTime(t);
-    }
-  }, []);
+  // Resolve master track URL — could be a blob URL or GridFS ID
+  const masterUrl = project.masterUrl
+    ? project.masterUrl.startsWith("blob:") || project.masterUrl.startsWith("http")
+      ? project.masterUrl
+      : stemURL(project.masterUrl)
+    : null;
 
-  const togglePlay = () => setIsPlaying((p) => !p);
+  const handleDownloadAllZip = async () => {
+    setZipping(true);
+    try {
+      // Dynamically load JSZip from CDN
+      const JSZip = (await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm")).default;
+      const zip = new JSZip();
 
-  const handleRestart = () => {
-    setMasterTime(0);
-    setIsPlaying(false);
-    setTimeout(() => setMasterTime(0.001), 50);
-  };
+      const stemEntries = Object.entries(project.stems || {}).filter(
+        ([, val]) => val && val.length > 0
+      );
 
-  const handleDownloadAll = () => {
-    const stems = project.stems;
-    Object.entries(stems).forEach(([key, idOrUrl]) => {
-      if (!idOrUrl) return;
-      const url = stemURL(idOrUrl);
+      // Fetch each stem and add to zip
+      for (const [key, idOrUrl] of stemEntries) {
+        const url = stemURL(idOrUrl);
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const blob = await resp.blob();
+          zip.file(`${project.name}_${key}.mp3`, blob);
+        } catch (err) {
+          console.warn(`Failed to fetch ${key}:`, err);
+          toast.error(`Could not include ${key} in zip`);
+        }
+      }
+
+      // Generate and download zip
+      const content = await zip.generateAsync({ type: "blob" });
       const a = document.createElement("a");
-      a.href = url;
-      a.download = `${project.name}_${key}.mp3`;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
+      a.href = URL.createObjectURL(content);
+      a.download = `${project.name}_stems.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-    });
-    toast.success("Downloading all stems...");
+      URL.revokeObjectURL(a.href);
+      toast.success("ZIP downloaded!");
+    } catch (err) {
+      console.error("ZIP error:", err);
+      // Fallback: download individually
+      toast.error("ZIP failed — downloading files individually...");
+      Object.entries(project.stems || {}).forEach(([key, idOrUrl]) => {
+        if (!idOrUrl) return;
+        const url = stemURL(idOrUrl);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${project.name}_${key}.mp3`;
+        a.target = "_blank";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      });
+    } finally {
+      setZipping(false);
+    }
   };
 
   return (
-    <div className="glass rounded-2xl p-6 space-y-5">
-      {/* Project header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="font-display text-xl font-bold text-content-primary">
-            {project.name}
-          </h2>
-          <p className="text-xs text-content-muted mt-0.5">
-            4 separated stems · Streamed from MongoDB
-          </p>
-        </div>
+    <div className="space-y-5">
+      {/* ── Project header + Download All ── */}
+      <div className="glass rounded-2xl p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-display text-2xl font-bold text-content-primary">
+              {project.name}
+            </h2>
+            <p className="text-sm text-content-muted mt-1">
+              {masterUrl ? "5 tracks" : "4 separated stems"} · Individual controls per track
+            </p>
+          </div>
 
-        <div className="flex items-center gap-2">
           <button
-            onClick={handleRestart}
-            className="p-2 rounded-lg bg-surface-raised hover:bg-surface-overlay border border-border-default text-content-secondary hover:text-content-primary transition-all"
-            title="Restart"
+            onClick={handleDownloadAllZip}
+            disabled={zipping}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-content-inverse text-sm font-medium transition-all disabled:opacity-50 glow-ring"
           >
-            <SkipBack className="w-4 h-4" />
-          </button>
-          <button
-            onClick={togglePlay}
-            className="p-2.5 rounded-lg bg-accent hover:bg-accent-hover text-content-inverse transition-all glow-ring"
-            title={isPlaying ? "Pause All" : "Play All"}
-          >
-            {isPlaying ? (
-              <Pause className="w-5 h-5" />
+            {zipping ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <Play className="w-5 h-5" />
+              <PackageOpen className="w-4 h-4" />
             )}
-          </button>
-          <button
-            onClick={handleDownloadAll}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-raised hover:bg-surface-overlay border border-border-default text-content-secondary hover:text-content-primary text-sm transition-all"
-          >
-            <PackageOpen className="w-4 h-4" />
-            <span className="hidden sm:inline">All Stems</span>
+            {zipping ? "Zipping..." : "Download Stems as ZIP"}
           </button>
         </div>
       </div>
 
-      {/* Stem grid — each channel gets its URL via stemURL(gridfsId) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* ── Master Track ── */}
+      {masterUrl && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <TrackChannel
+            config={{
+              key: "master",
+              label: "Master Track (Original)",
+              icon: Music,
+              colorVar: "--accent",
+              cardClass: "",
+            }}
+            url={masterUrl}
+            isMaster={true}
+          />
+        </motion.div>
+      )}
+
+      {/* ── Separated Stems Grid ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {STEM_CONFIG.map((config, i) => (
           <motion.div
             key={config.key}
@@ -353,12 +450,10 @@ export default function StemPlayer({ project }) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.08 }}
           >
-            <StemChannel
+            <TrackChannel
               config={config}
               url={stemURL(project.stems?.[config.key])}
-              isPlaying={isPlaying}
-              masterTime={i === 0 ? undefined : masterTime}
-              onTimeUpdate={i === 0 ? handleMasterTimeUpdate : undefined}
+              isMaster={false}
             />
           </motion.div>
         ))}
