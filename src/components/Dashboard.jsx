@@ -14,9 +14,8 @@ export default function Dashboard() {
   const [selectedProject, setSelectedProject] = useState(null);
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [processing, setProcessing] = useState(false);
-  const [progress, setProgress] = useState({ pct: 0, msg: "" });
+  const [progress, setProgress] = useState({ pct: 0, stage: "uploading" });
 
-  // Fetch projects on mount
   useEffect(() => {
     if (user?.isGuest) {
       setLoadingProjects(false);
@@ -39,20 +38,18 @@ export default function Dashboard() {
   const handleUpload = useCallback(
     async (file) => {
       setProcessing(true);
-      setProgress({ pct: 0, msg: "Preparing upload..." });
+      setProgress({ pct: 0, stage: "uploading" });
+
+      // Create a local object URL for master track playback
+      const masterObjectURL = URL.createObjectURL(file);
 
       try {
-        // Step 1: Send to Colab → Demucs → GridFS upload
-        // Returns GridFS ObjectId strings for each stem
-        setProgress({ pct: 5, msg: "Connecting to AI server..." });
-
-        const result = await separateTrack(file, (pct, msg) => {
-          setProgress({ pct, msg });
+        const result = await separateTrack(file, (pct, stage) => {
+          setProgress({ pct, stage });
         });
 
-        setProgress({ pct: 85, msg: "Saving project..." });
+        setProgress({ pct: 92, stage: "saving" });
 
-        // result = { vocals: "gridfs_id", drums: "gridfs_id", ... }
         const projectData = {
           name: file.name.replace(/\.[^/.]+$/, ""),
           stems: {
@@ -61,12 +58,22 @@ export default function Dashboard() {
             bass: result.bass,
             other: result.other,
           },
+          // Master track: use GridFS ID from Colab if available, else local blob
+          masterUrl: result.master || masterObjectURL,
         };
 
         if (!user?.isGuest) {
-          const saved = await createProject(projectData);
-          setProjects((prev) => [saved.project, ...prev]);
-          setSelectedProject(saved.project);
+          const saved = await createProject({
+            name: projectData.name,
+            stems: projectData.stems,
+          });
+          // Attach master URL to the saved project for the player
+          const projectWithMaster = {
+            ...saved.project,
+            masterUrl: projectData.masterUrl,
+          };
+          setProjects((prev) => [projectWithMaster, ...prev]);
+          setSelectedProject(projectWithMaster);
         } else {
           const guestProject = {
             _id: `guest-${Date.now()}`,
@@ -77,14 +84,18 @@ export default function Dashboard() {
           setSelectedProject(guestProject);
         }
 
-        setProgress({ pct: 100, msg: "Done!" });
+        setProgress({ pct: 100, stage: "done" });
         toast.success("Stems separated successfully!");
       } catch (err) {
         toast.error(err.message || "Separation failed");
         console.error("Separation error:", err);
+        URL.revokeObjectURL(masterObjectURL);
       } finally {
-        setProcessing(false);
-        setProgress({ pct: 0, msg: "" });
+        // Small delay so user sees "Done!" before resetting
+        setTimeout(() => {
+          setProcessing(false);
+          setProgress({ pct: 0, stage: "uploading" });
+        }, 800);
       }
     },
     [user]
