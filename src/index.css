@@ -1,0 +1,196 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =========================================================
+   StemFlow Design System — Semantic Token Layer
+   Dark-first, music-production aesthetic
+   ========================================================= */
+:root {
+  /* Surface hierarchy */
+  --surface-base: #0c0e12;
+  --surface-raised: #14171e;
+  --surface-overlay: #1c2029;
+  --surface-sunken: #080a0e;
+
+  /* Accent — warm amber energy */
+  --accent: #f59e0b;
+  --accent-hover: #fbbf24;
+  --accent-muted: rgba(245, 158, 11, 0.15);
+
+  /* Content */
+  --content-primary: #f0f2f5;
+  --content-secondary: #9ca3af;
+  --content-muted: #5b6478;
+  --content-inverse: #0c0e12;
+
+  /* Borders */
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.04);
+
+  /* Stem Colors — each instrument gets a distinct hue */
+  --stem-vocals: #f472b6;
+  --stem-drums: #fb923c;
+  --stem-bass: #34d399;
+  --stem-other: #60a5fa;
+
+  /* Misc */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --shadow-glow: 0 0 40px -10px rgba(245, 158, 11, 0.3);
+}
+
+/* =========================================================
+   Base Resets
+   ========================================================= */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: "DM Sans", sans-serif;
+  background: var(--surface-base);
+  color: var(--content-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* =========================================================
+   Scrollbar Styling
+   ========================================================= */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--content-muted);
+  border-radius: 99px;
+}
+
+/* =========================================================
+   Audio Element Overrides
+   ========================================================= */
+audio {
+  width: 100%;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  outline: none;
+}
+
+audio::-webkit-media-controls-panel {
+  background: var(--surface-overlay);
+}
+
+/* =========================================================
+   Custom Utilities
+   ========================================================= */
+.glass {
+  background: rgba(20, 23, 30, 0.7);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid var(--border-default);
+}
+
+.glow-ring {
+  box-shadow: var(--shadow-glow);
+}
+
+/* Animated gradient background */
+.bg-gradient-animated {
+  background: linear-gradient(
+    135deg,
+    var(--surface-base) 0%,
+    #121620 25%,
+    #0f1218 50%,
+    #151a24 75%,
+    var(--surface-base) 100%
+  );
+  background-size: 400% 400%;
+  animation: gradientShift 20s ease infinite;
+}
+
+@keyframes gradientShift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Noise texture overlay */
+.noise-overlay::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  z-index: 0;
+}
+
+/* Dropzone pulse animation */
+.dropzone-active {
+  animation: dropPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes dropPulse {
+  0%,
+  100% {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.3);
+  }
+  50% {
+    border-color: var(--accent-hover);
+    box-shadow: 0 0 0 8px rgba(245, 158, 11, 0);
+  }
+}
+
+/* Stem card left-border accent */
+.stem-card-vocals {
+  border-left: 3px solid var(--stem-vocals);
+}
+.stem-card-drums {
+  border-left: 3px solid var(--stem-drums);
+}
+.stem-card-bass {
+  border-left: 3px solid var(--stem-bass);
+}
+.stem-card-other {
+  border-left: 3px solid var(--stem-other);
+}
+
+/* Loading waveform animation */
+.loading-bar {
+  display: inline-block;
+  width: 4px;
+  margin: 0 2px;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: loadWave 1s ease-in-out infinite;
+}
+.loading-bar:nth-child(1) { animation-delay: 0s; height: 12px; }
+.loading-bar:nth-child(2) { animation-delay: 0.1s; height: 20px; }
+.loading-bar:nth-child(3) { animation-delay: 0.2s; height: 16px; }
+.loading-bar:nth-child(4) { animation-delay: 0.3s; height: 24px; }
+.loading-bar:nth-child(5) { animation-delay: 0.4s; height: 14px; }
+
+@keyframes loadWave {
+  0%, 100% { transform: scaleY(0.5); opacity: 0.5; }
+  50% { transform: scaleY(1); opacity: 1; }
+}
