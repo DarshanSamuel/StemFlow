@@ -4,7 +4,6 @@
 
 /* =========================================================
    StemFlow Design System — Semantic Token Layer
-   Dark-first, music-production aesthetic
    ========================================================= */
 :root {
   /* Surface hierarchy */
@@ -28,7 +27,7 @@
   --border-default: rgba(255, 255, 255, 0.08);
   --border-subtle: rgba(255, 255, 255, 0.04);
 
-  /* Stem Colors — each instrument gets a distinct hue */
+  /* Stem Colors */
   --stem-vocals: #f472b6;
   --stem-drums: #fb923c;
   --stem-bass: #34d399;
@@ -64,10 +63,13 @@ body {
   color: var(--content-primary);
   min-height: 100vh;
   overflow-x: hidden;
+  /* Slightly larger base for readability */
+  font-size: 1rem;
+  line-height: 1.6;
 }
 
 /* =========================================================
-   Scrollbar Styling
+   Scrollbar
    ========================================================= */
 ::-webkit-scrollbar {
   width: 6px;
@@ -81,7 +83,7 @@ body {
 }
 
 /* =========================================================
-   Audio Element Overrides
+   Audio Element
    ========================================================= */
 audio {
   width: 100%;
@@ -108,7 +110,6 @@ audio::-webkit-media-controls-panel {
   box-shadow: var(--shadow-glow);
 }
 
-/* Animated gradient background */
 .bg-gradient-animated {
   background: linear-gradient(
     135deg,
@@ -123,16 +124,10 @@ audio::-webkit-media-controls-panel {
 }
 
 @keyframes gradientShift {
-  0%,
-  100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
 }
 
-/* Noise texture overlay */
 .noise-overlay::before {
   content: "";
   position: fixed;
@@ -144,14 +139,13 @@ audio::-webkit-media-controls-panel {
   z-index: 0;
 }
 
-/* Dropzone pulse animation */
+/* Dropzone pulse */
 .dropzone-active {
   animation: dropPulse 1.5s ease-in-out infinite;
 }
 
 @keyframes dropPulse {
-  0%,
-  100% {
+  0%, 100% {
     border-color: var(--accent);
     box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.3);
   }
@@ -161,34 +155,26 @@ audio::-webkit-media-controls-panel {
   }
 }
 
-/* Stem card left-border accent */
-.stem-card-vocals {
-  border-left: 3px solid var(--stem-vocals);
-}
-.stem-card-drums {
-  border-left: 3px solid var(--stem-drums);
-}
-.stem-card-bass {
-  border-left: 3px solid var(--stem-bass);
-}
-.stem-card-other {
-  border-left: 3px solid var(--stem-other);
-}
+/* Stem card left-border accents */
+.stem-card-vocals { border-left: 3px solid var(--stem-vocals); }
+.stem-card-drums  { border-left: 3px solid var(--stem-drums); }
+.stem-card-bass   { border-left: 3px solid var(--stem-bass); }
+.stem-card-other  { border-left: 3px solid var(--stem-other); }
 
-/* Loading waveform animation */
+/* Loading waveform — bigger bars */
 .loading-bar {
   display: inline-block;
-  width: 4px;
-  margin: 0 2px;
+  width: 5px;
+  margin: 0 3px;
   background: var(--accent);
-  border-radius: 2px;
+  border-radius: 3px;
   animation: loadWave 1s ease-in-out infinite;
 }
-.loading-bar:nth-child(1) { animation-delay: 0s; height: 12px; }
-.loading-bar:nth-child(2) { animation-delay: 0.1s; height: 20px; }
-.loading-bar:nth-child(3) { animation-delay: 0.2s; height: 16px; }
-.loading-bar:nth-child(4) { animation-delay: 0.3s; height: 24px; }
-.loading-bar:nth-child(5) { animation-delay: 0.4s; height: 14px; }
+.loading-bar:nth-child(1) { animation-delay: 0s;   height: 16px; }
+.loading-bar:nth-child(2) { animation-delay: 0.1s; height: 26px; }
+.loading-bar:nth-child(3) { animation-delay: 0.2s; height: 20px; }
+.loading-bar:nth-child(4) { animation-delay: 0.3s; height: 30px; }
+.loading-bar:nth-child(5) { animation-delay: 0.4s; height: 18px; }
 
 @keyframes loadWave {
   0%, 100% { transform: scaleY(0.5); opacity: 0.5; }
